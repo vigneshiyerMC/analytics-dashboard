@@ -75,6 +75,45 @@
         }
       }
 
+      function getModuleFromRoute(route) {
+        const normalizedPath = route.replace(/^\/?(app\/)?/, '').replace(/\/$/, '');
+        const pathParts = normalizedPath.split('/');
+
+        // Special case for nested paths
+        if (pathParts.length > 1) {
+          // Handle AWS Health Events special case
+          if (pathParts[0] === 'foundational-best-practices' && pathParts[1] === 'aws-health-events') {
+            return 'AWS Health Events';
+          }
+        }
+
+        const moduleMap = {
+          'home': 'Dashboard',
+          'projects': 'Projects',
+          'assessments': 'Assessments', 
+          'foundational-best-practices': 'Foundational Best Practices',
+          'servers': 'All Resources',
+          'all-resources': 'All Resources',
+          'governance': 'Governance',
+          'policies': 'Policies',
+          'services': 'Services',
+          'cost': 'Cost',
+          'optimization': 'Optimization',
+          'security': 'Security',
+          'compliance': 'Security',
+          'automation': 'Automation',
+          'reports': 'Reports',
+          'login': 'Authentication',
+          'signup': 'Authentication',
+          'change-password': 'Authentication',
+          'reset-password': 'Authentication',
+          'forgot-password': 'Authentication',
+          'auth': 'Authentication',
+        };
+        
+        return moduleMap[pathParts[0]] || 'Unknown Module';
+      }
+
       function validateAndGenerateReport(results) {
         const data = results.data.filter((row) => row["Time"]);
         const users = new Set(data.map((row) => row["Distinct ID"]));
@@ -89,7 +128,12 @@
       }
 
       function generateReport(data) {
-        data.sort((a, b) => parseFloat(a.Time) - parseFloat(b.Time));
+        // Fix timestamp sorting by ensuring Time is treated as a number
+        data.sort((a, b) => {
+          const timeA = parseFloat(a.Time);
+          const timeB = parseFloat(b.Time);
+          return timeA - timeB;
+        });
 
         const pageViews = data.filter(
           (row) => row["Event Name"] === "[Auto] Page View"
@@ -97,7 +141,8 @@
         const moduleCounts = {};
         pageViews.forEach((row) => {
           const path = simplifyURL(row["Current URL"]);
-          moduleCounts[path] = (moduleCounts[path] || 0) + 1;
+          const moduleName = getModuleFromRoute(path);
+          moduleCounts[moduleName] = (moduleCounts[moduleName] || 0) + 1;
         });
 
         const apiErrors = data.filter((row) => /api/i.test(row["Event Name"]));
@@ -107,17 +152,16 @@
                 <h3>Event Journey Timeline</h3>
                 <div class="scrollable-table">
                     <table class="table table-bordered">
-                        <tr><th>Timestamp</th><th>Event</th><th>URL</th></tr>
+                        <tr><th>Timestamp</th><th>Event</th><th>Module</th><th>URL</th></tr>
                         ${data
                           .map(
                             (row) =>
-                              `<tr><td>${new Date(
-                                row.Time * 1000
-                              ).toLocaleString()}</td><td>${
-                                row["Event Name"]
-                              }</td><td>${simplifyURL(
-                                row["Current URL"]
-                              )}</td></tr>`
+                              `<tr>
+                                <td>${new Date(row.Time * 1000).toLocaleString()}</td>
+                                <td>${row["Event Name"]}</td>
+                                <td>${getModuleFromRoute(simplifyURL(row["Current URL"]))}</td>
+                                <td>${simplifyURL(row["Current URL"])}</td>
+                              </tr>`
                           )
                           .join("")}
                     </table>
@@ -125,13 +169,13 @@
 
                 <h3>Top Visited Modules</h3>
                 <table class="table table-bordered">
-                    <tr><th>URL</th><th>Visits</th></tr>
+                    <tr><th>Module</th><th>Visits</th></tr>
                     ${Object.entries(moduleCounts)
                       .sort((a, b) => b[1] - a[1])
-                      .slice(0, 10)
+                      .filter(([module]) => module !== 'Unknown Module' || Object.keys(moduleCounts).length === 1)
                       .map(
-                        ([url, count]) =>
-                          `<tr><td>${url}</td><td>${count}</td></tr>`
+                        ([module, count]) =>
+                          `<tr><td>${module}</td><td>${count}</td></tr>`
                       )
                       .join("")}
                 </table>
