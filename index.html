@@ -182,14 +182,26 @@
           document.getElementById("user-validation").innerText =
             "Multiple users detected! Please upload data for a single user.";
           document.getElementById("report").innerHTML = "";
-        } else {
-          document.getElementById("user-validation").innerText = "";
-          generateReport(data);
+          return;
         }
+        document.getElementById("user-validation").innerText = "";
+        generateReport(data);
       }
 
       function generateReport(data) {
-        // Add at the start of generateReport function
+        // Get user metadata from first row
+        const firstRow = data[0];
+        const userMetadata = {
+          email: firstRow.email || 'N/A',
+          userId: firstRow["User ID"] || 'N/A',
+          distinctId: firstRow["Distinct ID"] || 'N/A',
+          environment: firstRow.environment || 'N/A',
+          tenantName: firstRow.tenantName || 'N/A',
+          browser: `${firstRow.Browser || 'N/A'} ${firstRow["Browser Version"] || ''}`,
+          os: firstRow["Operating System"] || 'N/A',
+          location: `${firstRow.City || 'N/A'}, ${firstRow.Region || 'N/A'}, ${firstRow.Country || 'N/A'}`
+        };
+
         window.errorDetails = {
           api: data.filter((row) => /api/i.test(row["Event Name"])),
           ui: data.filter((row) => /ui/i.test(row["Event Name"]))
@@ -216,6 +228,27 @@
         const uiErrors = errorDetails.ui;
 
         document.getElementById("report").innerHTML = `
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h4 class="mb-0">User Profile</h4>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <p><strong>Email:</strong> ${userMetadata.email}</p>
+                                <p><strong>User ID:</strong> ${userMetadata.userId}</p>
+                                <p><strong>Distinct ID:</strong> ${userMetadata.distinctId}</p>
+                                <p><strong>Environment:</strong> ${userMetadata.environment}</p>
+                            </div>
+                            <div class="col-md-6">
+                                <p><strong>Tenant:</strong> ${userMetadata.tenantName}</p>
+                                <p><strong>Browser:</strong> ${userMetadata.browser}</p>
+                                <p><strong>OS:</strong> ${userMetadata.os}</p>
+                                <p><strong>Location:</strong> ${userMetadata.location}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <div id="detailsPopover" class="popover"></div>
                 <h3>Event Journey Timeline</h3>
                 <div class="scrollable-table">
