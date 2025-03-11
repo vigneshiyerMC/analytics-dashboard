@@ -93,15 +93,21 @@
         cursor: pointer;
         font-size: 24px;
       }
+      .user-selector {
+        max-width: 400px;
+        margin: 20px 0;
+      }
     </style>
   </head>
   <body class="container py-5">
     <h2 class="mb-4 text-primary">User-Specific Analytics Report</h2>
-    <input type="file" id="csvFile" class="form-control" />
-    <div id="user-validation" class="mt-2 text-danger"></div>
-    <!-- <button class="btn btn-success btn-download" onclick="downloadReport()">
-      Download Report as PNG
-    </button> -->
+    <input type="file" id="csvFile" class="form-control mb-3" />
+    <div class="d-flex align-items-center gap-3">
+      <select id="userSelector" class="form-select user-selector d-none">
+        <option value="">Select a user</option>
+      </select>
+      <div id="user-validation" class="badge bg-info text-wrap"></div>
+    </div>
     <hr />
     <div id="report"></div>
     <div class="panel-overlay"></div>
@@ -112,11 +118,61 @@
     </div>
 
     <script>
+      let userData = {};
+      let currentUser = null;
+
       document.getElementById("csvFile").addEventListener("change", uploadCSV);
 
       function uploadCSV(event) {
         const file = event.target.files[0];
-        Papa.parse(file, { header: true, complete: validateAndGenerateReport });
+        Papa.parse(file, { header: true, complete: processAllUsers });
+      }
+
+      function processAllUsers(results) {
+        const data = results.data.filter((row) => row["Time"]);
+        
+        // Group data by Distinct ID
+        userData = data.reduce((acc, row) => {
+          const distinctId = row["Distinct ID"];
+          if (!acc[distinctId]) {
+            acc[distinctId] = [];
+          }
+          acc[distinctId].push(row);
+          return acc;
+        }, {});
+
+        // Populate user selector
+        const userSelector = document.getElementById("userSelector");
+        userSelector.innerHTML = '<option value="">Select a user</option>' +
+          Object.entries(userData).map(([distinctId, userRows]) => {
+            const email = userRows[0].email || 'N/A';
+            return `<option value="${distinctId}">${email} (${distinctId})</option>`;
+          }).join('');
+
+        userSelector.classList.remove('d-none');
+        document.getElementById("user-validation").innerText = 
+          `${Object.keys(userData).length} users found`;
+
+        // Add change event listener
+        userSelector.addEventListener('change', switchUser);
+
+        // Auto-select first user
+        if (Object.keys(userData).length > 0) {
+          const firstUserId = Object.keys(userData)[0];
+          userSelector.value = firstUserId;
+          currentUser = firstUserId;
+          generateReport(userData[firstUserId]);
+        }
+      }
+
+      function switchUser(event) {
+        const selectedUserId = event.target.value;
+        if (!selectedUserId) {
+          document.getElementById("report").innerHTML = "";
+          return;
+        }
+        currentUser = selectedUserId;
+        generateReport(userData[selectedUserId]);
       }
 
       function parseApiEndpoint(apiErrorMetrics) {
@@ -173,19 +229,6 @@
         };
         
         return moduleMap[pathParts[0]] || 'Unknown Module';
-      }
-
-      function validateAndGenerateReport(results) {
-        const data = results.data.filter((row) => row["Time"]);
-        const users = new Set(data.map((row) => row["Distinct ID"]));
-        if (users.size > 1) {
-          document.getElementById("user-validation").innerText =
-            "Multiple users detected! Please upload data for a single user.";
-          document.getElementById("report").innerHTML = "";
-          return;
-        }
-        document.getElementById("user-validation").innerText = "";
-        generateReport(data);
       }
 
       function generateReport(data) {
