@@ -38,6 +38,61 @@
         font-family: monospace;
         font-size: 0.9em;
       }
+      .popover {
+        position: fixed;
+        background: white;
+        padding: 15px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        max-width: 500px;
+        z-index: 1000;
+        display: none;
+      }
+      .view-details-btn {
+        cursor: pointer;
+        color: #0d6efd;
+        text-decoration: underline;
+      }
+      .details-panel {
+        position: fixed;
+        right: -500px;
+        top: 0;
+        width: 500px;
+        height: 100vh;
+        background: white;
+        box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+        transition: right 0.3s ease;
+        z-index: 1000;
+        padding: 20px;
+      }
+      .details-panel.active {
+        right: 0;
+      }
+      .panel-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.5);
+        display: none;
+        z-index: 999;
+      }
+      .details-content {
+        height: calc(100% - 60px);
+        overflow-y: auto;
+        padding: 15px;
+        background: #f8f9fa;
+        border-radius: 8px;
+      }
+      .close-panel {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        cursor: pointer;
+        font-size: 24px;
+      }
     </style>
   </head>
   <body class="container py-5">
@@ -49,6 +104,12 @@
     </button> -->
     <hr />
     <div id="report"></div>
+    <div class="panel-overlay"></div>
+    <div class="details-panel">
+        <span class="close-panel">&times;</span>
+        <h4 class="mb-4">Error Details</h4>
+        <div class="details-content"></div>
+    </div>
 
     <script>
       document.getElementById("csvFile").addEventListener("change", uploadCSV);
@@ -128,6 +189,12 @@
       }
 
       function generateReport(data) {
+        // Add at the start of generateReport function
+        window.errorDetails = {
+          api: data.filter((row) => /api/i.test(row["Event Name"])),
+          ui: data.filter((row) => /ui/i.test(row["Event Name"]))
+        };
+
         // Fix timestamp sorting by ensuring Time is treated as a number
         data.sort((a, b) => {
           const timeA = parseFloat(a.Time);
@@ -145,10 +212,11 @@
           moduleCounts[moduleName] = (moduleCounts[moduleName] || 0) + 1;
         });
 
-        const apiErrors = data.filter((row) => /api/i.test(row["Event Name"]));
-        const uiErrors = data.filter((row) => /ui/i.test(row["Event Name"]));
+        const apiErrors = errorDetails.api;
+        const uiErrors = errorDetails.ui;
 
         document.getElementById("report").innerHTML = `
+                <div id="detailsPopover" class="popover"></div>
                 <h3>Event Journey Timeline</h3>
                 <div class="scrollable-table">
                     <table class="table table-bordered">
@@ -182,32 +250,98 @@
 
                 <h3>API Error Insights</h3>
                 <table class="table table-bordered">
-                    <tr><th>Event</th><th>API Endpoint</th><th>Occurrences</th></tr>
-                    ${apiErrors
-                      .map(
-                        (row) => `<tr>
-                        <td>${row["Event Name"]}</td>
-                        <td>${parseApiEndpoint(row.apiErrorMetrics)}</td>
-                        <td>1</td>
-                    </tr>`
-                      )
-                      .join("")}
+                    <tr><th>Event</th><th>API Endpoint</th><th>Occurrences</th><th>Details</th></tr>
+                    ${apiErrors.map((row, index) => `
+                        <tr>
+                            <td>${row["Event Name"]}</td>
+                            <td>${parseApiEndpoint(row.apiErrorMetrics)}</td>
+                            <td>1</td>
+                            <td><button class="btn btn-link p-0" onclick="showErrorDetails('api', ${index})">View Details</button></td>
+                        </tr>
+                    `).join("")}
                 </table>
 
                 <h3>UI Error Insights</h3>
                 <table class="table table-bordered">
-                    <tr><th>Event</th><th>URL</th><th>Occurrences</th></tr>
-                    ${uiErrors
-                      .map(
-                        (row) =>
-                          `<tr><td>${row["Event Name"]}</td><td>${simplifyURL(
-                            row["Current URL"]
-                          )}</td><td>1</td></tr>`
-                      )
-                      .join("")}
+                    <tr><th>Event</th><th>URL</th><th>Occurrences</th><th>Details</th></tr>
+                    ${uiErrors.map((row, index) => `
+                        <tr>
+                            <td>${row["Event Name"]}</td>
+                            <td>${simplifyURL(row["Current URL"])}</td>
+                            <td>1</td>
+                            <td><button class="btn btn-link p-0" onclick="showErrorDetails('ui', ${index})">View Details</button></td>
+                        </tr>
+                    `).join("")}
                 </table>
             `;
+
+        // Add click handler for view details buttons
+        document.querySelectorAll('.view-details-btn').forEach(btn => {
+          btn.addEventListener('click', function(e) {
+            const details = JSON.parse(this.getAttribute('data-details'));
+            showDetails(e, details);
+          });
+        });
+
+        // Add click handler to close popover when clicking outside
+        document.addEventListener('click', function(e) {
+          const popover = document.getElementById('detailsPopover');
+          if (!popover.contains(e.target) && !e.target.classList.contains('view-details-btn')) {
+            popover.style.display = 'none';
+          }
+        });
       }
+
+      function showErrorDetails(type, index) {
+        const data = window.errorDetails[type][index];
+        const panel = document.querySelector('.details-panel');
+        const overlay = document.querySelector('.panel-overlay');
+        const content = panel.querySelector('.details-content');
+        
+        const formattedData = Object.entries(data)
+          .map(([key, value]) => {
+            let displayValue = value || '-';
+            try {
+              if (typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
+                const parsedJson = JSON.parse(value);
+                displayValue = Object.keys(parsedJson).length > 0 
+                  ? `<pre class="mt-2">${JSON.stringify(parsedJson, null, 2)}</pre>`
+                  : '-';
+              }
+            } catch {
+              // If parsing fails or value is empty, use the original value or dash
+              displayValue = value || '-';
+            }
+            return `<div class="mb-3">
+              <div class="fw-bold text-secondary">${key}</div>
+              <div class="mt-1">${displayValue}</div>
+            </div>`;
+          })
+          .join('');
+        
+        content.innerHTML = formattedData;
+        panel.classList.add('active');
+        overlay.style.display = 'block';
+        
+        // Close panel handlers
+        const closePanel = () => {
+            panel.classList.remove('active');
+            overlay.style.display = 'none';
+        };
+        
+        document.querySelector('.close-panel').onclick = closePanel;
+        overlay.onclick = closePanel;
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closePanel();
+        });
+      }
+
+      // Add this after the existing click handler for closing popover
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+          document.getElementById('detailsPopover').style.display = 'none';
+        }
+      });
 
       function downloadReport() {
         const reportElement = document.getElementById("report");
